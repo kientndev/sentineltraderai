@@ -1,87 +1,61 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-from datetime import datetime
 import engine
 
 # Set page config for a premium wide-layout dashboard
 st.set_page_config(
-    page_title="SentinelTrader AI - Paper Trading Dashboard",
+    page_title="SentinelTrader",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# Custom premium styling for dark mode dashboard
+# Custom premium minimalist styling for dark mode dashboard
 st.markdown("""
 <style>
     /* Dark theme settings */
     .stApp {
-        background-color: #0d1117;
-        color: #c9d1d9;
+        background-color: #0b0e14;
+        color: #e1e4e8;
     }
     
-    /* Metrics panel card styling */
-    div[data-testid="stMetricValue"] {
-        font-family: 'Courier New', monospace;
-        font-size: 1.8rem;
-        color: #58a6ff;
+    /* Hide default Streamlit sidebar & decoration */
+    [data-testid="sidebar-content"] {
+        display: none !important;
     }
-    div[data-testid="stMetricLabel"] {
-        color: #8b949e;
-        font-weight: bold;
+    [data-testid="collapsedControl"] {
+        display: none !important;
     }
-    
-    /* Console Terminal Styling */
-    .console-header {
-        background-color: #21262d;
-        color: #8b949e;
-        padding: 6px 12px;
-        border-top-left-radius: 6px;
-        border-top-right-radius: 6px;
-        font-family: 'Courier New', monospace;
-        font-size: 0.85rem;
-        border: 1px solid #30363d;
-        border-bottom: none;
-        display: flex;
-        justify-content: space-between;
+    header {
+        display: none !important;
     }
-    .console-terminal {
-        background-color: #010409;
-        color: #39ff14; /* Matrix Green */
-        font-family: 'Courier New', Courier, monospace;
-        padding: 15px;
-        border-bottom-left-radius: 6px;
-        border-bottom-right-radius: 6px;
-        height: 250px;
-        overflow-y: auto;
-        border: 1px solid #30363d;
-        font-size: 0.9rem;
-        line-height: 1.4;
-    }
-    .console-line {
-        margin-bottom: 4px;
-        border-left: 3px solid #39ff14;
-        padding-left: 8px;
-    }
-    .console-line-buy {
-        color: #58a6ff;
-        border-left-color: #58a6ff;
-    }
-    .console-line-sell {
-        color: #ff7b72;
-        border-left-color: #ff7b72;
-    }
-    .console-line-hold {
-        color: #8b949e;
-        border-left-color: #8b949e;
+    footer {
+        display: none !important;
     }
     
-    /* Buttons Custom Colors */
-    .stButton>button {
-        border-radius: 4px;
-        font-weight: 600;
-        transition: all 0.2s ease;
+    /* Custom button overrides for minimalist, flat theme */
+    div.stButton > button {
+        background-color: #12161f !important;
+        color: #adbac7 !important;
+        border: 1px solid #222831 !important;
+        border-radius: 4px !important;
+        font-weight: 500 !important;
+        font-size: 0.85rem !important;
+        padding: 10px 16px !important;
+        transition: all 0.2s ease !important;
+        width: 100% !important;
+    }
+    div.stButton > button:hover {
+        color: #ffffff !important;
+        border-color: #4f5b66 !important;
+        background-color: #1a202c !important;
+    }
+    
+    /* Divider spacing */
+    hr {
+        margin: 1.5rem 0 !important;
+        border-color: #222831 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -89,69 +63,55 @@ st.markdown("""
 # Load current state
 state = engine.load_state()
 
-# Helper to calculate trades
+# Helper stats
 total_trades = sum(1 for log in state["log_history"] if "BUY" in log or "SELL" in log)
 active_positions_count = len(state["positions"])
 
 # Header with status indicator
-st.markdown("<h1 style='margin-bottom: 0px; padding-bottom: 0px;'>🤖 SentinelTrader AI</h1>", unsafe_allow_html=True)
-st.markdown("<p style='color: #8b949e; font-size: 1.1rem; margin-top: 0px;'>Automated Paper Trading & Gemini Decisions</p>", unsafe_allow_html=True)
+status_text = "● AI ACTIVE" if state["bot_running"] else "○ PAUSED"
+status_color = "#3fb950" if state["bot_running"] else "#f85149"
 
-# Status Badge Row
-status_col, spacer_col = st.columns([1, 4])
-with status_col:
-    if state["bot_running"]:
-        st.markdown(
-            '<div style="background-color: #1f2e1e; border: 1px solid #238636; color: #3fb950; padding: 6px 12px; border-radius: 20px; text-align: center; font-weight: bold; font-size: 0.9rem;">'
-            '● BOT STATUS: RUNNING'
-            '</div>', 
-            unsafe_allow_html=True
-        )
-    else:
-        st.markdown(
-            '<div style="background-color: #2c1e1e; border: 1px solid #f85149; color: #f85149; padding: 6px 12px; border-radius: 20px; text-align: center; font-weight: bold; font-size: 0.9rem;">'
-            '○ BOT STATUS: IDLE / PAUSED'
-            '</div>', 
-            unsafe_allow_html=True
-        )
+st.markdown(f"""
+<div style="display: flex; align-items: baseline; gap: 15px; margin-top: 10px; margin-bottom: 25px;">
+    <span style="font-size: 2.2rem; font-weight: 800; letter-spacing: -1px; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">SentinelTrader</span>
+    <span style="font-size: 0.85rem; font-weight: 700; color: {status_color}; letter-spacing: 1px; font-family: monospace;">{status_text}</span>
+</div>
+""", unsafe_allow_html=True)
 
-st.write("---")
+# Typography & Metrics (Clean Row HTML)
+st.markdown(f"""
+<div style="display: flex; gap: 80px; margin-bottom: 25px; flex-wrap: wrap;">
+    <div>
+        <div style="font-size: 0.75rem; font-weight: 700; color: #768390; letter-spacing: 1.5px; margin-bottom: 6px;">PORTFOLIO VALUE</div>
+        <div style="font-size: 2rem; font-weight: 700; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+            {state['portfolio_value']:,.0f} <span style="font-size: 1.1rem; color: #768390; font-weight: 400;">VND</span>
+        </div>
+    </div>
+    <div style="border-left: 1px solid #222831; height: 50px; align-self: center;"></div>
+    <div>
+        <div style="font-size: 0.75rem; font-weight: 700; color: #768390; letter-spacing: 1.5px; margin-bottom: 6px;">AVAILABLE CASH</div>
+        <div style="font-size: 2rem; font-weight: 700; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+            {state['available_cash']:,.0f} <span style="font-size: 1.1rem; color: #768390; font-weight: 400;">VND</span>
+        </div>
+    </div>
+    <div style="border-left: 1px solid #222831; height: 50px; align-self: center;"></div>
+    <div>
+        <div style="font-size: 0.75rem; font-weight: 700; color: #768390; letter-spacing: 1.5px; margin-bottom: 6px;">ACTIVE POSITIONS</div>
+        <div style="font-size: 2rem; font-weight: 700; color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">
+            {active_positions_count}
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-# Quick metric cards
-metric_val, metric_cash, metric_trades, metric_pos = st.columns(4)
+st.markdown("<hr>", unsafe_allow_html=True)
 
-with metric_val:
-    st.metric(
-        label="Total Portfolio Value",
-        value=f"{state['portfolio_value']:,.0f} VND"
-    )
+# Layout: 2 Columns
+col_left, col_right = st.columns([3, 2], gap="large")
 
-with metric_cash:
-    st.metric(
-        label="Available Cash",
-        value=f"{state['available_cash']:,.0f} VND"
-    )
-
-with metric_trades:
-    st.metric(
-        label="Total Trades Executed",
-        value=f"{total_trades}"
-    )
-
-with metric_pos:
-    st.metric(
-        label="Active Positions",
-        value=f"{active_positions_count}"
-    )
-
-st.write("")
-
-# Layout split into two columns
-col_left, col_right = st.columns([3, 2])
-
-# Left column: Active Portfolio Holdings
+# Left Column: Holdings
 with col_left:
-    st.subheader("📊 Active Portfolio Holdings")
+    st.markdown("<div style='font-size: 0.9rem; font-weight: 700; color: #ffffff; margin-bottom: 15px; letter-spacing: 0.5px;'>LIVE PORTFOLIO HOLDINGS</div>", unsafe_allow_html=True)
     
     positions_data = []
     for ticker, pos in state["positions"].items():
@@ -166,101 +126,94 @@ with col_left:
         positions_data.append({
             "Ticker": ticker,
             "Shares": f"{shares:,}",
-            "Avg Buy Price": f"{avg_price:,.0f} VND",
+            "Avg Price": f"{avg_price:,.0f} VND",
             "Current Price": f"{current_price:,.0f} VND",
-            "Current Value": f"{current_val:,.0f} VND",
-            "Profit / Loss": f"{pnl_vnd:+,.0f} VND ({pnl_pct:+.2f}%)"
+            "Market Value": f"{current_val:,.0f} VND",
+            "Unrealized PnL": f"{pnl_vnd:+,.0f} ({pnl_pct:+.2f}%)"
         })
         
     if positions_data:
         df = pd.DataFrame(positions_data)
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info("No active positions held. Bot is waiting to execute trades.")
+        st.markdown(
+            '<div style="border: 1px dashed #222831; border-radius: 4px; padding: 40px; text-align: center; color: #768390; font-size: 0.9rem; font-family: -apple-system, BlinkMacSystemFont, sans-serif;">'
+            'Portfolio empty. Sitting in cash awaiting market signals.'
+            '</div>', 
+            unsafe_allow_html=True
+        )
 
-# Right column: Mock equity curve line chart and interactive action buttons
+# Right Column: Equity curve and actions
 with col_right:
-    st.subheader("📈 Equity Curve (VND)")
+    st.markdown("<div style='font-size: 0.9rem; font-weight: 700; color: #ffffff; margin-bottom: 15px; letter-spacing: 0.5px;'>PERFORMANCE CURVE</div>", unsafe_allow_html=True)
     
-    # Plot equity history
+    # Plotly Equity Curve
     equity_hist = state.get("equity_history", [10000000.0])
     
-    # Generate clean line chart using Plotly for a premium aesthetic
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         y=equity_hist,
-        mode='lines+markers',
-        name='Portfolio Value',
-        line=dict(color='#58a6ff', width=3),
-        marker=dict(size=6, color='#1f6feb'),
-        hovertemplate='Index: %{x}<br>Value: %{y:,.0f} VND<extra></extra>'
+        mode='lines',
+        line=dict(color='#3fb950' if equity_hist[-1] >= 10000000.0 else '#f85149', width=2),
+        hovertemplate='Value: %{y:,.0f} VND<extra></extra>'
     ))
     
     fig.update_layout(
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=0, r=0, t=10, b=0),
-        height=240,
-        xaxis=dict(
-            showgrid=True,
-            gridcolor='#21262d',
-            tickfont=dict(color='#8b949e'),
-            title_font=dict(color='#8b949e')
-        ),
+        margin=dict(l=0, r=0, t=5, b=5),
+        height=180,
+        xaxis=dict(showgrid=False, visible=False),
         yaxis=dict(
             showgrid=True,
-            gridcolor='#21262d',
-            tickfont=dict(color='#8b949e'),
-            title_font=dict(color='#8b949e'),
+            gridcolor='#161b22',
+            tickfont=dict(color='#768390', size=9),
             tickformat=","
         )
     )
     
     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     
-    # Action buttons
-    st.write("🔧 **Control Panel**")
-    btn_pause, btn_scan, btn_reset = st.columns(3)
+    # Minimalist Control Buttons
+    btn_pause, btn_scan, btn_reset = st.columns(3, gap="small")
     
     with btn_pause:
-        pause_label = "⏸️ Pause Bot" if state["bot_running"] else "▶️ Resume Bot"
-        if st.button(pause_label, use_container_width=True):
-            state = engine.toggle_bot_status()
+        pause_label = "Pause AI" if state["bot_running"] else "Resume AI"
+        if st.button(pause_label):
+            engine.toggle_bot_status()
             st.rerun()
             
     with btn_scan:
-        if st.button("⚡ Force Scan", use_container_width=True):
-            state = engine.force_scan()
-            st.success("Scan executed!")
+        if st.button("Force Scan"):
+            engine.force_scan()
             st.rerun()
             
     with btn_reset:
-        if st.button("🔄 Reset Wallet", use_container_width=True):
-            state = engine.reset_wallet()
-            st.warning("Wallet state reset!")
+        if st.button("Reset Wallet"):
+            engine.reset_wallet()
             st.rerun()
 
-st.write("---")
+st.markdown("<hr>", unsafe_allow_html=True)
 
-# Bottom full-width console-style terminal for the "Gemini Decision Log"
-st.subheader("🖥️ Gemini Decision Log")
+# Bottom full-width clean developer console terminal
+st.markdown("<div style='font-size: 0.9rem; font-weight: 700; color: #ffffff; margin-bottom: 15px; letter-spacing: 0.5px;'>GEMINI DECISION LOG</div>", unsafe_allow_html=True)
 
-st.markdown('<div class="console-header"><span>TERMINAL SESSION</span><span>active log</span></div>', unsafe_allow_html=True)
-
-# Build custom terminal HTML list
+# Compile logs into pristine code-block style console
 terminal_content = ""
-# Show logs in reverse chronological order (newest first)
 for log in reversed(state["log_history"]):
-    line_class = "console-line"
+    color = "#adbac7"  # Neutral
     if "BUY" in log:
-        line_class += " console-line-buy"
+        color = "#58a6ff"  # Info / Buy
     elif "SELL" in log:
-        line_class += " console-line-sell"
-    elif "HOLD" in log or "skipped" in log:
-        line_class += " console-line-hold"
+        color = "#f85149"  # Warn / Sell
+    elif "neutral" in log or "HOLD" in log:
+        color = "#768390"  # Muted / Hold
         
-    # Escape quotes and formatting safely
-    safe_log = log.replace("<", "&lt;").replace(">", "&gt;")
-    terminal_content += f'<div class="{line_class}">{safe_log}</div>'
+    terminal_content += f'<div style="color: {color}; margin-bottom: 3px; font-family: monospace; font-size: 0.85rem;">{log}</div>'
 
-st.markdown(f'<div class="console-terminal">{terminal_content}</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div style="background-color: #07090e; border: 1px solid #161b22; border-radius: 4px; padding: 15px; max-height: 200px; overflow-y: auto; box-shadow: inset 0 0 10px rgba(0,0,0,0.5);">'
+    f'{terminal_content}'
+    f'</div>',
+    unsafe_allow_html=True
+)
