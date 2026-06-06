@@ -1,0 +1,12 @@
+{
+    "bot_running": true,
+    "available_cash": 10000000.0,
+    "portfolio_value": 10000000.0,
+    "positions": {},
+    "log_history": [
+        "[2026-06-06 14:04:28] Bot initialized. Ready for paper trading."
+    ],
+    "equity_history": [
+        10000000.0
+    ]
+}
