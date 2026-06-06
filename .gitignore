@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Python virtual environments & caches
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment / API keys / Wallets
+.env*.local
+.env
+wallet_state.json

@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #080b10;
+  color: #adbac7;
+}
+
+/* Custom scrollbars for the log terminal */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #05070a;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #1d242e;
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #30363d;
+}
