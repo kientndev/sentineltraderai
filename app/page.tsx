@@ -20,11 +20,22 @@ export default function Home() {
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [logs, setLogs] = useState<LogEntry[]>([
     {
-      timestamp: new Date().toLocaleTimeString(),
+      timestamp: "--:--:--",
       type: "SYSTEM",
       message: "System initialized. Ready for paper trading."
     }
   ]);
+
+  // Hydrate the initial log timestamp on the client after mount
+  useEffect(() => {
+    setLogs((prev) =>
+      prev.map((log, i) =>
+        i === prev.length - 1 && log.timestamp === "--:--:--"
+          ? { ...log, timestamp: new Date().toLocaleTimeString() }
+          : log
+      )
+    );
+  }, []);
 
   // Sync portfolio value with cash and active positions (using mock prices)
   useEffect(() => {
@@ -267,7 +278,7 @@ export default function Home() {
 
             return (
               <div key={index} className={`text-xs leading-6 ${color}`}>
-                <span className="text-foreground/30 mr-3">[{log.timestamp}]</span>
+                <span className="text-foreground/30 mr-3" suppressHydrationWarning>[{log.timestamp}]</span>
                 <span>{log.message}</span>
               </div>
             );
