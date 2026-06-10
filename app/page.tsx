@@ -1,172 +1,150 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../convex/_generated/api";
+import { useState } from "react";
+
+// ---------------------------------------------------------------------------
+// Types (mirror the Convex schema)
+// ---------------------------------------------------------------------------
 
 interface Position {
+  ticker: string;
   shares: number;
   avgPrice: number;
 }
 
-interface LogEntry {
+interface TradeLog {
+  _id: string;
   timestamp: string;
-  type: "BUY" | "SELL" | "HOLD" | "SYSTEM";
+  logType: string;
   message: string;
+  ticker?: string;
+  price?: number;
+  shares?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const FASTAPI_BASE = "http://127.0.0.1:8000";
+
+function formatVND(value: number) {
+  return value.toLocaleString("vi-VN", { maximumFractionDigits: 0 });
+}
+
+function logColor(logType: string) {
+  switch (logType) {
+    case "BUY":    return "text-accent";
+    case "SELL":   return "text-paused";
+    case "HOLD":   return "text-foreground/40";
+    case "SCAN":   return "text-sky-400";
+    default:       return "text-foreground/60";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 export default function Home() {
-  const [botRunning, setBotRunning] = useState<boolean>(true);
-  const [availableCash, setAvailableCash] = useState<number>(10000000);
-  const [portfolioValue, setPortfolioValue] = useState<number>(10000000);
-  const [positions, setPositions] = useState<Record<string, Position>>({});
-  const [logs, setLogs] = useState<LogEntry[]>([
-    {
-      timestamp: "--:--:--",
-      type: "SYSTEM",
-      message: "System initialized. Ready for paper trading."
-    }
-  ]);
+  // --- Live data from Convex (auto-updating) ---
+  const portfolio   = useQuery(api.portfolio.getPortfolio);
+  const recentLogs  = useQuery(api.portfolio.getRecentLogs, { limit: 100 });
 
-  // Hydrate the initial log timestamp on the client after mount
-  useEffect(() => {
-    setLogs((prev) =>
-      prev.map((log, i) =>
-        i === prev.length - 1 && log.timestamp === "--:--:--"
-          ? { ...log, timestamp: new Date().toLocaleTimeString() }
-          : log
-      )
-    );
-  }, []);
+  // --- Convex mutations (used for reset only) ---
+  const resetMutation = useMutation(api.portfolio.resetPortfolio);
 
-  // Sync portfolio value with cash and active positions (using mock prices)
-  useEffect(() => {
-    const mockPrices: Record<string, number> = {
-      FPT: 135000,
-      VNM: 68000,
-      HPG: 29000,
-      VIC: 42000
-    };
+  // --- Local UI state ---
+  const [botActive, setBotActive]   = useState(true);
+  const [scanning,  setScanning]    = useState(false);
+  const [resetting, setResetting]   = useState(false);
+  const [error,     setError]       = useState<string | null>(null);
 
-    const holdingsValue = Object.entries(positions).reduce((acc, [ticker, pos]) => {
-      const currentPrice = mockPrices[ticker] || pos.avgPrice;
-      return acc + pos.shares * currentPrice;
-    }, 0);
+  // --- Derived values (safe defaults while Convex loads) ---
+  const availableCash  = portfolio?.availableCash  ?? 10_000_000;
+  const totalValue     = portfolio?.totalValue     ?? 10_000_000;
+  const positions: Position[] = portfolio?.positions ?? [];
+  const logs: TradeLog[]      = recentLogs ?? [];
 
-    setPortfolioValue(availableCash + holdingsValue);
-  }, [availableCash, positions]);
+  // ---------------------------------------------------------------------------
+  // Handlers — call FastAPI, which writes to Convex; Convex pushes update here
+  // ---------------------------------------------------------------------------
 
-  const addLog = (type: LogEntry["type"], message: string) => {
-    const newLog: LogEntry = {
-      timestamp: new Date().toLocaleTimeString(),
-      type,
-      message
-    };
-    setLogs((prev) => [newLog, ...prev].slice(0, 100));
-  };
-
-  const handleToggle = () => {
-    const nextState = !botRunning;
-    setBotRunning(nextState);
-    addLog("SYSTEM", `Bot status toggled to ${nextState ? "ACTIVE" : "PAUSED"}.`);
-  };
-
-  const handleScan = () => {
-    if (!botRunning) {
-      addLog("SYSTEM", "Scan request ignored. Bot is currently paused.");
-      return;
-    }
-
-    const mockTickers = ["FPT", "VNM", "HPG", "VIC"];
-    const ticker = mockTickers[Math.floor(Math.random() * mockTickers.length)];
-    const mockPrices: Record<string, number> = { FPT: 135000, VNM: 68000, HPG: 29000, VIC: 42000 };
-    const currentPrice = mockPrices[ticker];
-
-    const decision = Math.random() > 0.5 ? "BUY" : Math.random() > 0.5 ? "SELL" : "HOLD";
-
-    if (decision === "BUY") {
-      const budget = availableCash * 0.25;
-      if (budget >= currentPrice) {
-        const sharesToBuy = Math.floor(budget / currentPrice);
-        const cost = sharesToBuy * currentPrice;
-        setAvailableCash((prev) => prev - cost);
-        setPositions((prev) => {
-          const current = prev[ticker] || { shares: 0, avgPrice: 0 };
-          const totalShares = current.shares + sharesToBuy;
-          const avgPrice = ((current.shares * current.avgPrice) + cost) / totalShares;
-          return {
-            ...prev,
-            [ticker]: { shares: totalShares, avgPrice }
-          };
-        });
-        addLog("BUY", `BUY ${sharesToBuy} shares of ${ticker} @ ${currentPrice.toLocaleString()} VND.`);
-      } else {
-        addLog("HOLD", `HOLD decision for ${ticker}. Insufficient funds.`);
+  async function handleScan() {
+    if (!botActive) return;
+    setScanning(true);
+    setError(null);
+    try {
+      const res = await fetch(`${FASTAPI_BASE}/api/scan`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.detail ?? `HTTP ${res.status}`);
       }
-    } else if (decision === "SELL") {
-      const pos = positions[ticker];
-      if (pos && pos.shares > 0) {
-        const sharesToSell = Math.random() > 0.5 ? Math.floor(pos.shares / 2) || pos.shares : pos.shares;
-        const revenue = sharesToSell * currentPrice;
-        setAvailableCash((prev) => prev + revenue);
-        setPositions((prev) => {
-          const current = { ...prev };
-          const remaining = current[ticker].shares - sharesToSell;
-          if (remaining <= 0) {
-            delete current[ticker];
-          } else {
-            current[ticker] = { shares: remaining, avgPrice: current[ticker].avgPrice };
-          }
-          return current;
-        });
-        addLog("SELL", `SELL ${sharesToSell} shares of ${ticker} @ ${currentPrice.toLocaleString()} VND.`);
-      } else {
-        addLog("HOLD", `HOLD decision for ${ticker}. Evaluated indicators: neutral.`);
-      }
-    } else {
-      addLog("HOLD", `HOLD decision for ${ticker}. No clear action signals.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Scan failed");
+    } finally {
+      setScanning(false);
     }
-  };
+  }
 
-  const handleReset = () => {
-    if (confirm("Reset wallet to default values?")) {
-      setAvailableCash(10000000);
-      setPositions({});
-      setLogs([
-        {
-          timestamp: new Date().toLocaleTimeString(),
-          type: "SYSTEM",
-          message: "Wallet state reset. Initialized cash to 10,000,000 VND."
-        }
-      ]);
+  async function handleReset() {
+    if (!confirm("Reset portfolio to 10,000,000 VND?")) return;
+    setResetting(true);
+    setError(null);
+    try {
+      // Call Convex mutation directly — no need to go through FastAPI for reset
+      await resetMutation();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResetting(false);
     }
-  };
+  }
 
-  const positionsList = Object.entries(positions);
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <main className="max-w-6xl mx-auto px-6 py-12 flex flex-col min-h-screen justify-between">
-      {/* Top Header & Status */}
+
+      {/* ── Header ── */}
       <div>
         <header className="flex items-baseline gap-4 mb-10">
-          <h1 className="text-4xl font-extrabold tracking-tight text-white font-sans">
+          <h1 className="text-4xl font-extrabold tracking-tight text-white">
             SentinelTrader
           </h1>
           <span
             className={`text-xs font-bold tracking-widest font-mono uppercase transition-colors duration-300 ${
-              botRunning ? "text-accent" : "text-paused"
+              botActive ? "text-accent" : "text-paused"
             }`}
           >
-            {botRunning ? "● AI ACTIVE" : "○ PAUSED"}
+            {botActive ? "● AI ACTIVE" : "○ PAUSED"}
           </span>
+          {portfolio === undefined && (
+            <span className="text-xs text-foreground/40 font-mono ml-2">
+              connecting…
+            </span>
+          )}
         </header>
 
-        {/* Portfolio Metrics Grid */}
+        {/* ── Error banner ── */}
+        {error && (
+          <div className="mb-6 rounded border border-paused/30 bg-paused/5 px-4 py-3 text-xs text-paused font-mono">
+            ⚠ {error}
+          </div>
+        )}
+
+        {/* ── Metrics grid ── */}
         <section className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
           <div className="border-l border-border pl-6 py-1">
             <div className="text-[10px] font-bold text-foreground/50 tracking-widest uppercase mb-1">
               PORTFOLIO VALUE
             </div>
             <div className="text-3xl font-extrabold text-white tracking-tight">
-              {portfolioValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatVND(totalValue)}
               <span className="text-sm font-normal text-foreground/50 ml-1">VND</span>
             </div>
           </div>
@@ -176,7 +154,7 @@ export default function Home() {
               AVAILABLE CASH
             </div>
             <div className="text-3xl font-extrabold text-white tracking-tight">
-              {availableCash.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              {formatVND(availableCash)}
               <span className="text-sm font-normal text-foreground/50 ml-1">VND</span>
             </div>
           </div>
@@ -186,22 +164,23 @@ export default function Home() {
               ACTIVE POSITIONS
             </div>
             <div className="text-3xl font-extrabold text-white tracking-tight">
-              {positionsList.length}
+              {positions.length}
             </div>
           </div>
         </section>
 
         <hr className="border-border my-8" />
 
-        {/* Workspace Grid */}
+        {/* ── Workspace ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Left Column: Live Holdings */}
+
+          {/* Holdings table */}
           <div className="lg:col-span-2">
             <h2 className="text-[10px] font-bold tracking-widest text-foreground/50 uppercase mb-4">
               LIVE PORTFOLIO HOLDINGS
             </h2>
-            {positionsList.length === 0 ? (
-              <div className="border border-dashed border-border rounded p-16 text-center text-sm text-foreground/40 font-sans">
+            {positions.length === 0 ? (
+              <div className="border border-dashed border-border rounded p-16 text-center text-sm text-foreground/40">
                 Portfolio empty. Sitting in cash awaiting market signals.
               </div>
             ) : (
@@ -216,16 +195,18 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {positionsList.map(([ticker, pos]) => {
-                      const mockPrices: Record<string, number> = { FPT: 135000, VNM: 68000, HPG: 29000, VIC: 42000 };
-                      const currentPrice = mockPrices[ticker] || pos.avgPrice;
-                      const currentValue = pos.shares * currentPrice;
+                    {positions.map((pos) => {
+                      const currentValue = pos.shares * pos.avgPrice;
                       return (
-                        <tr key={ticker} className="border-b border-border last:border-0 hover:bg-[#12161f]/10">
-                          <td className="py-4 px-4 text-sm font-semibold text-white">{ticker}</td>
+                        <tr key={pos.ticker} className="border-b border-border last:border-0 hover:bg-[#12161f]/10">
+                          <td className="py-4 px-4 text-sm font-semibold text-white">{pos.ticker}</td>
                           <td className="py-4 px-4 text-sm text-right text-white">{pos.shares.toLocaleString()}</td>
-                          <td className="py-4 px-4 text-sm text-right text-foreground/75">{pos.avgPrice.toLocaleString(undefined, { maximumFractionDigits: 0 })} VND</td>
-                          <td className="py-4 px-4 text-sm text-right text-white">{currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} VND</td>
+                          <td className="py-4 px-4 text-sm text-right text-foreground/75">
+                            {formatVND(pos.avgPrice)} VND
+                          </td>
+                          <td className="py-4 px-4 text-sm text-right text-white">
+                            {formatVND(currentValue)} VND
+                          </td>
                         </tr>
                       );
                     })}
@@ -235,56 +216,59 @@ export default function Home() {
             )}
           </div>
 
-          {/* Right Column: Controls */}
+          {/* Controls */}
           <div>
             <h2 className="text-[10px] font-bold tracking-widest text-foreground/50 uppercase mb-4">
               CONTROLS
             </h2>
             <div className="flex flex-col gap-3">
               <button
-                onClick={handleToggle}
+                onClick={() => setBotActive((v) => !v)}
                 className="w-full bg-[#12161f] text-white border border-border rounded py-3 text-xs font-semibold hover:border-foreground/40 hover:bg-[#161b24] transition-all"
               >
-                {botRunning ? "Pause AI Session" : "Resume AI Session"}
+                {botActive ? "Pause AI Session" : "Resume AI Session"}
               </button>
+
               <button
                 onClick={handleScan}
-                className="w-full bg-[#12161f] text-white border border-border rounded py-3 text-xs font-semibold hover:border-foreground/40 hover:bg-[#161b24] transition-all"
+                disabled={!botActive || scanning}
+                className="w-full bg-[#12161f] text-white border border-border rounded py-3 text-xs font-semibold hover:border-foreground/40 hover:bg-[#161b24] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                Force Gemini Scan
+                {scanning ? "Scanning…" : "Force Market Scan"}
               </button>
+
               <button
                 onClick={handleReset}
-                className="w-full bg-transparent text-paused border border-paused/25 rounded py-3 text-xs font-semibold hover:border-paused/50 hover:bg-paused/5 transition-all"
+                disabled={resetting}
+                className="w-full bg-transparent text-paused border border-paused/25 rounded py-3 text-xs font-semibold hover:border-paused/50 hover:bg-paused/5 transition-all disabled:opacity-40"
               >
-                Reset Account Balance
+                {resetting ? "Resetting…" : "Reset Account Balance"}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Bottom Console Feed */}
+      {/* ── Decision log ── */}
       <div className="mt-12">
         <h2 className="text-[10px] font-bold tracking-widest text-foreground/50 uppercase mb-4">
-          GEMINI DECISION LOG
+          TRADE DECISION LOG
         </h2>
         <div className="bg-terminalBg border border-border rounded p-5 h-48 overflow-y-auto font-mono custom-scrollbar">
-          {logs.map((log, index) => {
-            let color = "text-[#adbac7]";
-            if (log.type === "BUY") color = "text-accent";
-            else if (log.type === "SELL") color = "text-paused";
-            else if (log.type === "HOLD") color = "text-foreground/40";
-
-            return (
-              <div key={index} className={`text-xs leading-6 ${color}`}>
-                <span className="text-foreground/30 mr-3" suppressHydrationWarning>[{log.timestamp}]</span>
+          {logs.length === 0 ? (
+            <p className="text-xs text-foreground/30">No logs yet. Run a market scan to get started.</p>
+          ) : (
+            logs.map((log) => (
+              <div key={log._id} className={`text-xs leading-6 ${logColor(log.logType)}`}>
+                <span className="text-foreground/30 mr-3">[{log.timestamp.replace("T", " ")}]</span>
+                <span className="text-foreground/50 mr-2 font-bold">{log.logType}</span>
                 <span>{log.message}</span>
               </div>
-            );
-          })}
+            ))
+          )}
         </div>
       </div>
+
     </main>
   );
 }
